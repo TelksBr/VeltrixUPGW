@@ -102,6 +102,7 @@ func TestClientUDPRoundTrip(t *testing.T) {
 	clientCancel()
 	_ = serverConn.Close()
 	_ = tcpConn.Close()
+	echoConn.Close()
 	<-echoDone
 }
 
