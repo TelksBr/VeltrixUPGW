@@ -91,8 +91,8 @@ func TestClientUDPRoundTrip(t *testing.T) {
 	if connID != 99 {
 		t.Fatalf("connID = %d", connID)
 	}
-	if reply[4] != 0x07 {
-		t.Fatalf("x = 0x%02x", reply[4])
+	if reply[2] != 0x07 {
+		t.Fatalf("x = 0x%02x", reply[2])
 	}
 	gotData := reply[protocol.MinPayloadLen:]
 	if string(gotData) != "ping" {
