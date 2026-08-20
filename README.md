@@ -20,7 +20,57 @@ Recursos principais:
 
 ## Requisitos
 
-- Go **1.22+** (para compilar a partir do código-fonte)
+- **Linux** (amd64, arm64, armv7 ou 386)
+- Go **1.22+** (somente para compilar a partir do código-fonte)
+
+## Instalação na VPS (recomendado)
+
+Instala o binário `udpgw`, o menu interativo `ugw` e um serviço systemd na porta **7400** (se ainda não existir configuração):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TelksBr/VeltrixUPGW/main/install.sh | bash
+```
+
+Após a instalação, abra o menu de gerenciamento:
+
+```bash
+sudo ugw
+```
+
+Alias equivalente: `sudo udpgw-menu`
+
+### O que o instalador faz
+
+- Detecta automaticamente a arquitetura (`x86_64` → amd64, `aarch64` → arm64, `armv7l` → armv7, `i386`/`i686` → 386)
+- Baixa a release mais recente do GitHub com verificação **SHA256SUMS**
+- Instala `/usr/local/bin/udpgw` e `/usr/local/bin/ugw`
+- Cria serviço `udpgw-7400.service` na primeira instalação (pode desativar com `--no-service`)
+
+### Atualizar
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TelksBr/VeltrixUPGW/main/install.sh | bash -s -- --update --yes
+```
+
+### Opções úteis
+
+| Flag | Descrição |
+|------|-----------|
+| `--version v1.0.1` | Instala uma release específica |
+| `--binary-only` | Instala/atualiza só o binário (sem menu) |
+| `--no-service` | Não cria o serviço padrão na porta 7400 |
+| `--yes` | Sem confirmação interativa |
+
+### Menu `ugw` — controle completo
+
+O menu permite gerenciar uma ou várias portas UDP Gateway:
+
+- Criar, iniciar, parar e reiniciar portas
+- Status, logs (`journalctl`) e painel de métricas ao vivo
+- Opções avançadas (listen, metrics, buffers, limites, timeouts, debug)
+- Instalar/atualizar binário e menu
+
+Configs em `/etc/udpgw/conf.d/udpgw-{PORTA}.conf`, units em `udpgw-{PORTA}.service`.
 
 ## Compilação
 

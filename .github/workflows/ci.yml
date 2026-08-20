@@ -37,3 +37,8 @@ jobs:
         run: |
           GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/udpgw
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/udpgw
+
+      - name: Validate shell scripts
+        run: |
+          bash -n install.sh
+          bash -n ugw.sh
