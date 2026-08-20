@@ -10,7 +10,7 @@ MENU_NAME="ugw"
 INSTALL_DIR="/usr/local/bin"
 VERSION_FILE="/etc/udpgw-version"
 MENU_REV_FILE="/etc/ugw-menu-revision"
-INSTALLER_REV="1"
+INSTALLER_REV="2"
 MENU_REV_EXPECTED="1"
 DEFAULT_PORT=7400
 BOX_WIDTH=51
@@ -149,12 +149,117 @@ has_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
+has_command_path() {
+  has_command "$1" || [[ -x "/usr/bin/$1" ]] || [[ -x "/bin/$1" ]]
+}
+
 has_checksum_command() {
-  has_command sha256sum || has_command shasum
+  has_command_path sha256sum || has_command_path shasum
 }
 
 has_systemd() {
-  command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system || -d /sys/fs/cgroup/systemd ]]
+  has_command_path systemctl && [[ -d /run/systemd/system || -d /sys/fs/cgroup/systemd ]]
+}
+
+read_nonempty_lines() {
+  local -n _target=$1
+  local line
+  _target=()
+  while IFS= read -r line; do
+    line="${line//$'\r'/}"
+    [[ -n "$line" ]] && _target+=("$line")
+  done
+}
+
+get_missing_commands() {
+  local missing=()
+  has_command_path curl || missing+=("curl")
+  has_checksum_command || missing+=("sha256sum")
+  has_command_path ss || missing+=("ss")
+  has_command_path systemctl || missing+=("systemctl")
+  has_command_path journalctl || missing+=("journalctl")
+  has_command_path bash || missing+=("bash")
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    printf '%s\n' "${missing[@]}"
+  fi
+}
+
+needs_sudo_install() {
+  [[ "${EUID:-$(id -u)}" -eq 0 ]] && ! has_command_path sudo
+}
+
+ensure_sudo() {
+  local pm
+
+  needs_sudo_install || return 0
+
+  pm=$(detect_package_manager)
+  if [[ "$pm" == "unknown" ]]; then
+    log_warn "sudo não encontrado e gerenciador de pacotes desconhecido — instale sudo manualmente."
+    return 0
+  fi
+
+  log_info "sudo não encontrado — instalando via ${pm}..."
+  if install_packages "$pm" sudo; then
+    hash -r 2>/dev/null || true
+    if has_command_path sudo; then
+      log_success "sudo instalado."
+    else
+      log_warn "Pacote sudo instalado, mas comando ainda não disponível no PATH."
+    fi
+  else
+    log_warn "Falha ao instalar sudo automaticamente."
+  fi
+}
+
+commands_to_packages() {
+  local pm="$1"
+  shift
+  local cmd packages=() pkg add_ca=false
+  for cmd in "$@"; do
+    cmd="${cmd//$'\r'/}"
+    [[ -z "$cmd" ]] && continue
+    case "$cmd" in
+    curl)
+      pkg="curl"
+      add_ca=true
+      ;;
+    sha256sum) pkg="coreutils" ;;
+    ss)
+      case "$pm" in
+      apk) pkg="iproute2" ;;
+      *) pkg="iproute2" ;;
+      esac
+      ;;
+    systemctl | journalctl)
+      case "$pm" in
+      apk) pkg="systemd" ;;
+      *) pkg="systemd" ;;
+      esac
+      ;;
+    bash) pkg="bash" ;;
+    *) continue ;;
+    esac
+    [[ " ${packages[*]} " == *" $pkg "* ]] || packages+=("$pkg")
+  done
+
+  if [[ "$add_ca" == true ]]; then
+    case "$pm" in
+    apk)
+      [[ " ${packages[*]} " == *" ca-certificates "* ]] || packages+=("ca-certificates")
+      ;;
+    pacman)
+      [[ " ${packages[*]} " == *" ca-certificates "* ]] || packages+=("ca-certificates")
+      ;;
+    *)
+      [[ " ${packages[*]} " == *" ca-certificates "* ]] || packages+=("ca-certificates")
+      ;;
+    esac
+  fi
+
+  if [[ ${#packages[@]} -gt 0 ]]; then
+    printf '%s\n' "${packages[@]}"
+  fi
 }
 
 detect_package_manager() {
@@ -186,34 +291,53 @@ install_packages() {
 }
 
 ensure_dependencies() {
-  local missing=() pm packages=()
+  local missing=() packages=() still_missing=() pm
 
-  has_command curl || missing+=("curl")
-  has_checksum_command || missing+=("sha256sum")
-
-  [[ ${#missing[@]} -eq 0 ]] && return 0
+  read_nonempty_lines missing < <(get_missing_commands)
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    log_success "Dependências OK (curl, checksum, ss, systemd, bash)."
+    return 0
+  fi
 
   log_warn "Dependências ausentes: ${missing[*]}"
   pm=$(detect_package_manager)
   if [[ "$pm" == "unknown" ]]; then
-    log_error "Instale manualmente: curl coreutils (sha256sum)"
+    log_error "Gerenciador de pacotes não suportado."
+    log_info "Instale manualmente: curl ca-certificates coreutils iproute2 systemd sudo bash"
     exit 1
   fi
 
-  for cmd in "${missing[@]}"; do
-    case "$cmd" in
-    curl) packages+=("curl") ;;
-    sha256sum) packages+=("coreutils") ;;
-    esac
-  done
+  read_nonempty_lines packages < <(commands_to_packages "$pm" "${missing[@]}")
+  if [[ ${#packages[@]} -eq 0 ]]; then
+    log_error "Não foi possível mapear pacotes para: ${missing[*]}"
+    exit 1
+  fi
 
   log_info "Instalando dependências via ${pm}: ${packages[*]}"
   install_packages "$pm" "${packages[@]}" || {
     log_error "Falha ao instalar dependências."
     exit 1
   }
+
   hash -r 2>/dev/null || true
-  log_success "Dependências OK."
+  export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
+  has_command_path curl || still_missing+=("curl")
+  has_checksum_command || still_missing+=("sha256sum")
+  has_command_path ss || still_missing+=("ss")
+  has_command_path bash || still_missing+=("bash")
+
+  if [[ ${#still_missing[@]} -gt 0 ]]; then
+    log_error "Ainda faltam dependências após instalação: ${still_missing[*]}"
+    exit 1
+  fi
+
+  if ! has_command_path systemctl || ! has_command_path journalctl; then
+    log_warn "systemd/journalctl indisponível — o menu e o serviço automático podem não funcionar."
+    log_info "Use uma VPS com systemd (Debian/Ubuntu/CentOS) ou configure o udpgw manualmente."
+  else
+    log_success "Dependências OK (curl, checksum, ss, systemd, bash)."
+  fi
 }
 
 detect_platform() {
@@ -595,11 +719,13 @@ print_finish_message() {
 main() {
   parse_args "$@"
   print_header
-  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && ! command -v sudo >/dev/null 2>&1; then
-    log_error "Execute como root ou instale sudo."
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]] && ! has_command_path sudo; then
+    log_error "Execute como root na primeira instalação: curl -fsSL ... | bash"
+    log_info "Depois de instalado, use: sudo ugw"
     exit 1
   fi
   ensure_dependencies
+  ensure_sudo
   detect_platform
   show_current_installation
 

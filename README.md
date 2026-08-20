@@ -42,6 +42,7 @@ Alias equivalente: `sudo udpgw-menu`
 ### O que o instalador faz
 
 - Detecta automaticamente a arquitetura (`x86_64` → amd64, `aarch64` → arm64, `armv7l` → armv7, `i386`/`i686` → 386)
+- Instala dependências ausentes via gerenciador de pacotes: `curl`, `ca-certificates`, `coreutils` (sha256sum), `iproute2` (`ss`), `systemd` (systemctl/journalctl), `bash` e `sudo`
 - Baixa a release mais recente do GitHub com verificação **SHA256SUMS**
 - Instala `/usr/local/bin/udpgw` e `/usr/local/bin/ugw`
 - Cria serviço `udpgw-7400.service` na primeira instalação (pode desativar com `--no-service`)
