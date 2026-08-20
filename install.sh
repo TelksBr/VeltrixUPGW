@@ -10,7 +10,7 @@ MENU_NAME="ugw"
 INSTALL_DIR="/usr/local/bin"
 VERSION_FILE="/etc/udpgw-version"
 MENU_REV_FILE="/etc/ugw-menu-revision"
-INSTALLER_REV="2"
+INSTALLER_REV="3"
 MENU_REV_EXPECTED="1"
 DEFAULT_PORT=7400
 BOX_WIDTH=51
@@ -687,8 +687,18 @@ EOF
 
 confirm_installation() {
   [[ "$ASSUME_YES" == true ]] && return 0
+  if [[ ! -t 0 ]]; then
+    log_info "Instalação via pipe (curl | bash) — continuando sem confirmação interativa."
+    log_info "Use --yes explicitamente ou bash -s -- --yes para suprimir esta mensagem."
+    return 0
+  fi
   echo
-  read -rp "$(echo -e "${YELLOW}Continuar com a instalação? (s/N): ${NC}")" answer
+  log_warn "Aguardando confirmação..."
+  if [[ -r /dev/tty ]]; then
+    read -rp "$(echo -e "${YELLOW}Continuar com a instalação? (s/N): ${NC}")" answer </dev/tty
+  else
+    read -rp "$(echo -e "${YELLOW}Continuar com a instalação? (s/N): ${NC}")" answer
+  fi
   case "${answer,,}" in
   s | sim | y | yes) ;;
   *)
